@@ -1,0 +1,683 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  OPERATIONS_MANAGER
+  COMMERCIAL_MANAGER
+  FINANCE_ADMIN
+  VENDOR
+  VENDOR_STAFF
+  CUSTOMER_SUPPORT
+  CONTENT_MANAGER
+  CUSTOMER
+}
+
+enum PublishStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  LIVE
+  ARCHIVED
+}
+
+enum BookingStatus {
+  PENDING
+  AWAITING_PAYMENT
+  CONFIRMED
+  DECLINED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  DISPUTED
+}
+
+enum ReservationType {
+  STANDARD_TABLE
+  VIP_TABLE
+  BOTTLE_PREORDER
+  FULL_PACKAGE
+}
+
+enum PaymentProvider {
+  STRIPE
+  PAYPAL
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+enum MediaEntityType {
+  EVENT
+  VENUE
+  MENU_ITEM
+  USER
+  BANNER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+  PUBLISH
+  UNPUBLISH
+  LOGIN
+  LOGOUT
+  PRICE_CHANGE
+  BOOKING_OVERRIDE
+  ROLE_CHANGE
+  REFUND
+  EXPORT
+  TRANSFER_OWNERSHIP
+}
+
+// ─────────────────────────────────────────────
+// USER & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  emailEncrypted    String?   // encrypted PII
+  phone             String?
+  phoneEncrypted    String?   // encrypted PII
+  passwordHash      String
+  firstName         String
+  lastName          String
+  role              UserRole  @default(CUSTOMER)
+  isActive          Boolean   @default(true)
+  isEmailVerified   Boolean   @default(false)
+  emailVerifyToken  String?
+  passwordResetToken String?
+  passwordResetExpiry DateTime?
+  lastLoginAt       DateTime?
+  deletionRequestAt DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  refreshTokens     RefreshToken[]
+  vendorProfile     Vendor?
+  bookings          Booking[]
+  ticketPurchases   TicketPurchase[]
+  auditLogs         AuditLog[]        @relation("AuditUser")
+  auditSubjects     AuditLog[]        @relation("AuditSubject")
+  notifications     Notification[]
+  idempotencyKeys   IdempotencyKey[]
+
+  @@index([email])
+  @@index([role])
+  @@index([deletedAt])
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  token       String    @unique
+  expiresAt   DateTime
+  isRevoked   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+// ─────────────────────────────────────────────
+// VENDOR
+// ─────────────────────────────────────────────
+
+model Vendor {
+  id                 String         @id @default(uuid())
+  userId             String         @unique
+  businessName       String
+  businessRegNumber  String?
+  taxId              String?
+  contactEmail       String
+  contactPhone       String?
+  isApproved         Boolean        @default(false)
+  approvedAt         DateTime?
+  approvedById       String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  venues             Venue[]
+  events             Event[]
+
+  @@index([userId])
+  @@index([isApproved])
+}
+
+// ─────────────────────────────────────────────
+// VENUE & TABLES
+// ─────────────────────────────────────────────
+
+model Venue {
+  id                    String         @id @default(uuid())
+  vendorId              String
+  name                  String
+  slug                  String         @unique
+  description           String?
+  address               String
+  city                  String
+  country               String
+  phone                 String?
+  email                 String?
+  openingHours          Json?          // { mon: {open:"22:00", close:"04:00"}, ... }
+  policies              String?
+  depositRequired       Boolean        @default(false)
+  depositPercent        Decimal?       @db.Decimal(5, 2)
+  serviceChargePercent  Decimal        @default(0) @db.Decimal(5, 2)
+  taxPercent            Decimal        @default(0) @db.Decimal(5, 2)
+  status                PublishStatus  @default(DRAFT)
+  heroImageUrl          String?
+  galleryImageUrls      String[]       @default([])
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  vendor                Vendor         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  tables                Table[]
+  events                Event[]
+  menuCategories        MenuCategory[]
+  timeSlots             TimeSlot[]
+  venueSpecials         VenueSpecial[]
+
+  @@index([vendorId])
+  @@index([slug])
+  @@index([city])
+  @@index([status])
+}
+
+model Table {
+  id              String         @id @default(uuid())
+  venueId         String
+  name            String
+  capacity        Int
+  location        String?        // e.g. "Main Floor", "Mezzanine"
+  isVip           Boolean        @default(false)
+  attributes      Json?          // arbitrary key/value (e.g. {bottleService: true})
+  minimumSpend    Decimal?       @db.Decimal(10, 2)
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  venue           Venue          @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  bookings        Booking[]
+  timeSlotTables  TimeSlotTable[]
+
+  @@index([venueId])
+  @@index([isVip])
+}
+
+model TimeSlot {
+  id           String          @id @default(uuid())
+  venueId      String
+  startTime    DateTime
+  endTime      DateTime
+  label        String?         // e.g. "Friday Night VIP"
+  minimumSpend Decimal?        @db.Decimal(10, 2)
+  isBlocked    Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  venue        Venue           @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  tables       TimeSlotTable[]
+  bookings     Booking[]
+
+  @@index([venueId])
+  @@index([startTime])
+  @@index([venueId, startTime])
+}
+
+model TimeSlotTable {
+  id           String    @id @default(uuid())
+  timeSlotId   String
+  tableId      String
+  isAvailable  Boolean   @default(true)
+  lockedUntil  DateTime?
+  lockedBy     String?   // userId
+
+  timeSlot     TimeSlot  @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
+  table        Table     @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@unique([timeSlotId, tableId])
+  @@index([timeSlotId])
+  @@index([tableId])
+  @@index([lockedUntil])
+}
+
+// ─────────────────────────────────────────────
+// EVENT & TICKETING
+// ─────────────────────────────────────────────
+
+model Event {
+  id               String        @id @default(uuid())
+  vendorId         String
+  venueId          String?
+  title            String
+  slug             String        @unique
+  description      String?
+  flyerImageUrl    String?
+  category         String?
+  startTime        DateTime
+  endTime          DateTime?
+  status           PublishStatus @default(DRAFT)
+  moderationNote   String?
+  moderatedById    String?
+  moderatedAt      DateTime?
+  scheduledPublishAt DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  vendor           Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  venue            Venue?        @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  ticketTiers      TicketTier[]
+
+  @@index([vendorId])
+  @@index([venueId])
+  @@index([startTime])
+  @@index([status])
+  @@index([category])
+}
+
+model TicketTier {
+  id               String           @id @default(uuid())
+  eventId          String
+  name             String           // e.g. "General", "VIP", "Early Bird"
+  price            Decimal          @db.Decimal(10, 2)
+  totalQuantity    Int
+  soldQuantity     Int              @default(0)
+  heldQuantity     Int              @default(0)
+  earlyBirdLimit   Int?
+  earlyBirdPrice   Decimal?         @db.Decimal(10, 2)
+  earlyBirdEndsAt  DateTime?
+  description      String?
+  isActive         Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  event            Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketPurchases  TicketPurchase[]
+  inventoryHolds   InventoryHold[]
+
+  @@index([eventId])
+}
+
+model InventoryHold {
+  id              String      @id @default(uuid())
+  ticketTierId    String?
+  tableId         String?
+  userId          String
+  quantity        Int         @default(1)
+  expiresAt       DateTime    // holds for 10 minutes
+  isReleased      Boolean     @default(false)
+  idempotencyKey  String?     @unique
+  createdAt       DateTime    @default(now())
+
+  ticketTier      TicketTier? @relation(fields: [ticketTierId], references: [id], onDelete: Cascade)
+
+  @@index([ticketTierId])
+  @@index([tableId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model TicketPurchase {
+  id                String        @id @default(uuid())
+  userId            String
+  ticketTierId      String
+  quantity          Int
+  unitPrice         Decimal       @db.Decimal(10, 2)
+  totalAmount       Decimal       @db.Decimal(10, 2)
+  paymentStatus     PaymentStatus @default(PENDING)
+  paymentId         String?       // Stripe/PayPal payment intent id
+  qrCodeData        String?
+  checkedInAt       DateTime?
+  idempotencyKey    String        @unique
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  user              User          @relation(fields: [userId], references: [id])
+  ticketTier        TicketTier    @relation(fields: [ticketTierId], references: [id])
+  payment           Payment?
+
+  @@index([userId])
+  @@index([ticketTierId])
+  @@index([paymentStatus])
+}
+
+// ─────────────────────────────────────────────
+// BOOKING
+// ─────────────────────────────────────────────
+
+model Booking {
+  id                String          @id @default(uuid())
+  userId            String
+  tableId           String
+  timeSlotId        String
+  reservationType   ReservationType @default(STANDARD_TABLE)
+  status            BookingStatus   @default(PENDING)
+  guestCount        Int
+  customerNotes     String?
+  preferences       Json?
+  minimumSpend      Decimal?        @db.Decimal(10, 2)
+  depositAmount     Decimal?        @db.Decimal(10, 2)
+  totalAmount       Decimal?        @db.Decimal(10, 2)
+  paymentStatus     PaymentStatus   @default(PENDING)
+  paymentId         String?
+  declineReason     String?
+  overriddenById    String?
+  overriddenAt      DateTime?
+  idempotencyKey    String          @unique
+  confirmedAt       DateTime?
+  cancelledAt       DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  user              User            @relation(fields: [userId], references: [id])
+  table             Table           @relation(fields: [tableId], references: [id])
+  timeSlot          TimeSlot        @relation(fields: [timeSlotId], references: [id])
+  bookingItems      BookingItem[]
+  payment           Payment?
+
+  @@index([userId])
+  @@index([tableId])
+  @@index([timeSlotId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model BookingItem {
+  id            String       @id @default(uuid())
+  bookingId     String
+  menuItemId    String
+  quantity      Int
+  unitPrice     Decimal      @db.Decimal(10, 2)
+  createdAt     DateTime     @default(now())
+
+  booking       Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  menuItem      MenuItem     @relation(fields: [menuItemId], references: [id])
+
+  @@index([bookingId])
+  @@index([menuItemId])
+}
+
+// ─────────────────────────────────────────────
+// MENU & PRICING
+// ─────────────────────────────────────────────
+
+model MenuCategory {
+  id          String       @id @default(uuid())
+  venueId     String
+  name        String       // whisky, vodka, champagne, etc.
+  slug        String
+  sortOrder   Int          @default(0)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  venue       Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  items       MenuItem[]
+
+  @@unique([venueId, slug])
+  @@index([venueId])
+}
+
+model MenuItem {
+  id                  String        @id @default(uuid())
+  categoryId          String
+  name                String
+  description         String?
+  price               Decimal       @db.Decimal(10, 2)
+  imageUrl            String?
+  isAvailable         Boolean       @default(true)
+  status              PublishStatus @default(DRAFT)
+  upsellItemIds       String[]      @default([])
+  isBundle            Boolean       @default(false)
+  scheduledPublishAt  DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  category            MenuCategory  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  bundleItems         BundleItem[]  @relation("BundleParent")
+  includedInBundles   BundleItem[]  @relation("BundleChild")
+  priceHistory        PriceHistory[]
+  bookingItems        BookingItem[]
+  specials            SpecialItem[]
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([isAvailable])
+}
+
+model BundleItem {
+  id          String    @id @default(uuid())
+  bundleId    String
+  itemId      String
+  quantity    Int       @default(1)
+
+  bundle      MenuItem  @relation("BundleParent", fields: [bundleId], references: [id], onDelete: Cascade)
+  item        MenuItem  @relation("BundleChild", fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([bundleId, itemId])
+  @@index([bundleId])
+}
+
+model VenueSpecial {
+  id          String        @id @default(uuid())
+  venueId     String
+  name        String
+  description String?
+  startsAt    DateTime
+  endsAt      DateTime
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  venue       Venue         @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  items       SpecialItem[]
+
+  @@index([venueId])
+  @@index([startsAt, endsAt])
+}
+
+model SpecialItem {
+  id            String       @id @default(uuid())
+  specialId     String
+  menuItemId    String
+  specialPrice  Decimal      @db.Decimal(10, 2)
+
+  special       VenueSpecial @relation(fields: [specialId], references: [id], onDelete: Cascade)
+  menuItem      MenuItem     @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([specialId, menuItemId])
+  @@index([specialId])
+}
+
+model PriceHistory {
+  id            String    @id @default(uuid())
+  menuItemId    String
+  oldPrice      Decimal   @db.Decimal(10, 2)
+  newPrice      Decimal   @db.Decimal(10, 2)
+  changedById   String
+  reason        String?
+  createdAt     DateTime  @default(now())
+
+  menuItem      MenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([menuItemId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// PAYMENTS
+// ─────────────────────────────────────────────
+
+model Payment {
+  id                  String          @id @default(uuid())
+  bookingId           String?         @unique
+  ticketPurchaseId    String?         @unique
+  provider            PaymentProvider
+  externalId          String          @unique // Stripe PaymentIntent / PayPal order id
+  amount              Decimal         @db.Decimal(10, 2)
+  currency            String          @default("GBP")
+  status              PaymentStatus   @default(PENDING)
+  metadata            Json?
+  refundedAmount      Decimal?        @db.Decimal(10, 2)
+  webhookVerified     Boolean         @default(false)
+  idempotencyKey      String          @unique
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  booking             Booking?        @relation(fields: [bookingId], references: [id])
+  ticketPurchase      TicketPurchase? @relation(fields: [ticketPurchaseId], references: [id])
+
+  @@index([externalId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model WebhookEvent {
+  id            String    @id @default(uuid())
+  provider      String
+  eventType     String
+  externalId    String    @unique
+  payload       Json
+  processed     Boolean   @default(false)
+  processedAt   DateTime?
+  error         String?
+  createdAt     DateTime  @default(now())
+
+  @@index([provider, eventType])
+  @@index([processed])
+  @@index([externalId])
+}
+
+model IdempotencyKey {
+  id          String    @id @default(uuid())
+  key         String    @unique
+  userId      String
+  endpoint    String
+  response    Json?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([key])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────
+// MEDIA
+// ─────────────────────────────────────────────
+
+model Media {
+  id            String          @id @default(uuid())
+  entityType    MediaEntityType
+  entityId      String
+  url           String
+  cdnUrl        String?
+  publicId      String?         // Cloudinary public_id
+  filename      String
+  mimeType      String
+  sizeBytes     Int
+  width         Int?
+  height        Int?
+  altText       String?
+  isFallback    Boolean         @default(false)
+  uploadedById  String
+  createdAt     DateTime        @default(now())
+
+  @@index([entityType, entityId])
+  @@index([uploadedById])
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+model Notification {
+  id          String              @id @default(uuid())
+  userId      String
+  channel     NotificationChannel
+  status      NotificationStatus  @default(QUEUED)
+  subject     String?
+  body        String
+  metadata    Json?
+  sentAt      DateTime?
+  error       String?
+  createdAt   DateTime            @default(now())
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id            String      @id @default(uuid())
+  actorId       String
+  subjectId     String?
+  subjectType   String?
+  action        AuditAction
+  entityType    String?
+  entityId      String?
+  before        Json?
+  after         Json?
+  metadata      Json?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime    @default(now())
+
+  actor         User        @relation("AuditUser", fields: [actorId], references: [id])
+  subject       User?       @relation("AuditSubject", fields: [subjectId], references: [id])
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+}
