@@ -57,7 +57,8 @@ export class InventoryCleanupJob {
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async cancelStaleBookings() {
-    const cutoff = new Date(Date.now() - 30 * 60 * 1000);
+    const staleMinutes = parseInt(process.env.STALE_BOOKING_TIMEOUT_MINUTES || '30', 10);
+    const cutoff = new Date(Date.now() - staleMinutes * 60 * 1000);
     const stale = await this.prisma.booking.findMany({
       where: {
         status: 'AWAITING_PAYMENT',

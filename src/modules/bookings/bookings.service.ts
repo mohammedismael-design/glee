@@ -95,7 +95,7 @@ export class BookingsService {
       if (dto.items && dto.items.length > 0) {
         for (const item of dto.items) {
           const menuItem = await tx.menuItem.findUnique({ where: { id: item.menuItemId } });
-          if (!menuItem) throw new NotFoundException(`Menu item ${item.menuItemId} not found`);
+          if (!menuItem) throw new NotFoundException(`One or more menu items could not be found`);
           bookingItems.push({
             menuItemId: item.menuItemId,
             quantity: item.quantity,

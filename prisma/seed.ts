@@ -8,8 +8,13 @@ async function main() {
 
   // Super Admin (mandatory recovery account)
   const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'superadmin@glee.com';
-  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'ChangeMe@123!';
-  const hash = await bcrypt.hash(superAdminPassword, 12);
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
+
+  if (!superAdminPassword && process.env.NODE_ENV === 'production') {
+    throw new Error('SUPER_ADMIN_PASSWORD environment variable must be set in production');
+  }
+  const resolvedPassword = superAdminPassword || 'ChangeMe@123!';
+  const hash = await bcrypt.hash(resolvedPassword, 12);
 
   const superAdmin = await prisma.user.upsert({
     where: { email: superAdminEmail },

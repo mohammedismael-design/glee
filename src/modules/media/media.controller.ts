@@ -28,8 +28,12 @@ export class MediaController {
     @Param('entityId') entityId: string,
     @CurrentUser('id') uploadedById: string,
     @UploadedFile() file: Express.Multer.File,
-    @Query('imageType') imageType: 'flyer' | 'heroBanner' | 'gallery' | 'menuItem' = 'flyer',
+    @Query('imageType') imageTypeRaw: string,
   ) {
+    const allowedImageTypes = ['flyer', 'heroBanner', 'gallery', 'menuItem'] as const;
+    const imageType = allowedImageTypes.includes(imageTypeRaw as any)
+      ? (imageTypeRaw as (typeof allowedImageTypes)[number])
+      : 'flyer';
     return this.mediaService.uploadImage(file, entityType, entityId, uploadedById, imageType);
   }
 

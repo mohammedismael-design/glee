@@ -93,9 +93,11 @@ export class VendorsService {
       this.prisma.booking.count({ where: { timeSlot: { venue: { vendorId: vendor.id } } } }),
       this.prisma.booking.findMany({
         where: {
-          timeSlot: { venue: { vendorId: vendor.id } },
+          timeSlot: {
+            venue: { vendorId: vendor.id },
+            startTime: { gte: new Date() },
+          },
           status: { in: ['PENDING', 'CONFIRMED'] },
-          timeSlot: { startTime: { gte: new Date() } },
         },
         orderBy: { createdAt: 'desc' },
         take: 10,
