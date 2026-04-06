@@ -2,14 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationChannel } from '@prisma/client';
-import * as nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import * as twilio from 'twilio';
 import * as QRCode from 'qrcode';
 
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
-  private transporter: nodemailer.Transporter;
+  private transporter: Transporter;
   private twilioClient: twilio.Twilio;
 
   constructor(
